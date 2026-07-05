@@ -1,0 +1,11 @@
+/build
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+release/
+debug/
