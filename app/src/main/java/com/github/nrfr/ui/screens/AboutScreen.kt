@@ -10,6 +10,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -17,6 +21,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.github.nrfr.R
+import com.github.nrfr.manager.AppUpdateManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 private const val PROJECT_REPO = "https://github.com/lmh-codes/Nrfr"
 private const val UPSTREAM_REPO = "https://github.com/Ackites/Nrfr"
@@ -27,6 +36,14 @@ private const val UPSTREAM_LICENSE = "https://github.com/Ackites/Nrfr/blob/maste
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val currentVersion = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
+    val coroutineScope = rememberCoroutineScope()
+    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
 
     fun openUrl(url: String) {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -83,7 +100,7 @@ fun AboutScreen(onBack: () -> Unit) {
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            "• Android 16+ 适配版 SIM 运营商配置覆盖工具\n" +
+                            "• 面向 Android 16/17 的 SIM 运营商配置覆盖工具\n" +
                                 "• 单 APK 安装，开箱即用\n" +
                                 "• 基于 Shizuku 直连系统 Telephony 服务，无需 Root\n" +
                                 "• 支持查看 SIM1 / SIM2 当前配置和覆盖状态\n" +
@@ -154,6 +171,48 @@ fun AboutScreen(onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Button(
+                    onClick = {
+                        if (isCheckingUpdate) return@Button
+                        isCheckingUpdate = true
+                        updateMessage = "正在检查更新..."
+                        coroutineScope.launch {
+                            try {
+                                val release = withContext(Dispatchers.IO) {
+                                    AppUpdateManager.fetchLatestRelease()
+                                }
+                                if (!AppUpdateManager.isNewerVersion(release.version, currentVersion)) {
+                                    updateMessage = "当前已是最新版本"
+                                } else {
+                                    updateMessage = "正在下载 ${release.version}..."
+                                    val apk = withContext(Dispatchers.IO) {
+                                        AppUpdateManager.downloadApk(context, release)
+                                    }
+                                    AppUpdateManager.installApk(context, apk)
+                                    updateMessage = "下载完成，请确认安装"
+                                }
+                            } catch (error: Exception) {
+                                updateMessage = "更新失败：${error.message ?: "网络或文件错误"}".take(160)
+                            } finally {
+                                isCheckingUpdate = false
+                            }
+                        }
+                    },
+                    enabled = !isCheckingUpdate,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isCheckingUpdate) "更新处理中..." else "检查在线更新")
+                }
+                updateMessage?.let { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     }

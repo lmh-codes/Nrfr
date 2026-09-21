@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
     private var isShizukuReady by mutableStateOf(false)
     private var shizukuBlockReason by mutableStateOf(ShizukuBlockReason.SERVICE_NOT_RUNNING)
     private var showAbout by mutableStateOf(false)
+    private var autoPermissionRequestAttempted = false
 
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -36,7 +37,10 @@ class MainActivity : ComponentActivity() {
         }
 
     private val binderListener = Shizuku.OnBinderReceivedListener {
-        runOnUiThread { updateShizukuStatus() }
+        runOnUiThread {
+            updateShizukuStatus()
+            requestShizukuPermissionAutomatically()
+        }
     }
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
@@ -58,6 +62,7 @@ class MainActivity : ComponentActivity() {
         }
 
         updateShizukuStatus()
+        requestShizukuPermissionAutomatically()
 
         setContent {
             NrfrTheme {
@@ -77,7 +82,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        OperationState.reset()
         updateShizukuStatus()
     }
 
@@ -91,16 +95,18 @@ class MainActivity : ComponentActivity() {
         updateShizukuStatus()
     }
 
+    private fun requestShizukuPermissionAutomatically() {
+        if (autoPermissionRequestAttempted || ShizukuHelper.hasPermission()) return
+        if (ShizukuHelper.isBinderAvailable()) {
+            autoPermissionRequestAttempted = true
+            ShizukuHelper.requestPermissionIfNeeded()
+        }
+    }
+
     private fun updateShizukuStatus() {
         isShizukuReady = ShizukuHelper.hasPermission()
         if (!isShizukuReady) {
             shizukuBlockReason = resolveShizukuBlockReason()
-            if (
-                shizukuBlockReason == ShizukuBlockReason.PERMISSION_NOT_GRANTED &&
-                ShizukuHelper.isBinderAvailable()
-            ) {
-                ShizukuHelper.requestPermissionIfNeeded()
-            }
         }
     }
 

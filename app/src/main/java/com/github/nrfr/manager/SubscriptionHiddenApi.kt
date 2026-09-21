@@ -61,13 +61,19 @@ internal object SubscriptionHiddenApi {
                     if (delayMs > 0) {
                         Thread.sleep(delayMs)
                     }
+                    var syncSucceeded = false
                     runCatching {
                         applySync(appContext, subId, carrierName)
+                        syncSucceeded = true
                     }.onFailure {
                         Log.w(TAG, "sync attempt ${attempt + 1} failed subId=$subId", it)
                     }
 
-                    if (carrierName == null || verifyCarrierName(subId, carrierName) || verifyOperatorBrand(subId, carrierName)) {
+                    if (
+                        (carrierName == null && syncSucceeded) ||
+                            (carrierName != null &&
+                                (verifyCarrierName(subId, carrierName) || verifyOperatorBrand(subId, carrierName)))
+                    ) {
                         if (carrierName != null) {
                             Log.i(
                                 TAG,
@@ -106,6 +112,7 @@ internal object SubscriptionHiddenApi {
             .onFailure { Log.w(TAG, "notifyConfigChangedForSubId($subId) failed", it) }
 
         if (carrierName == null) {
+            clearCarrierName(context, subId)
             return
         }
 
@@ -184,10 +191,60 @@ internal object SubscriptionHiddenApi {
         throw errors.lastOrNull() ?: IllegalStateException("all carrier name sync paths failed")
     }
 
+    private fun clearCarrierName(context: Context, subId: Int) {
+        val errors = mutableListOf<Throwable>()
+
+        if (syncShellIdentity.get()) {
+            runCatching { setOperatorBrandOverrideViaTelephonyManager(context, subId, null) }
+                .onSuccess {
+                    Log.i(TAG, "cleared carrier name via TelephonyManager subId=$subId")
+                    return
+                }
+                .onFailure { errors.add(it) }
+        }
+
+        runCatching { setOperatorBrandOverrideViaITelephony(subId, null) }
+            .onSuccess {
+                Log.i(TAG, "cleared carrier name via ITelephony subId=$subId")
+                return
+            }
+            .onFailure { errors.add(it) }
+
+        runCatching { setCarrierNameViaOplusInternalExt(subId, null) }
+            .onSuccess {
+                Log.i(TAG, "cleared carrier name via IOplusTelephonyInternalExt subId=$subId")
+                return
+            }
+            .onFailure { errors.add(it) }
+
+        runCatching { setCarrierNameViaOplusExt(subId, null) }
+            .onSuccess {
+                Log.i(TAG, "cleared carrier name via ISubExt subId=$subId")
+                return
+            }
+            .onFailure { errors.add(it) }
+
+        runCatching { triggerOppoSpnRefreshViaInternalExt(subId) }
+            .onSuccess {
+                Log.i(TAG, "refreshed carrier name via IOplusTelephonyInternalExt subId=$subId")
+                return
+            }
+            .onFailure { errors.add(it) }
+
+        runCatching { triggerOppoSpnRefresh(context, subId) }
+            .onSuccess {
+                Log.i(TAG, "refreshed carrier name after clear subId=$subId")
+                return
+            }
+            .onFailure { errors.add(it) }
+
+        throw errors.lastOrNull() ?: IllegalStateException("all carrier name clear paths failed")
+    }
+
     private fun setOperatorBrandOverrideViaTelephonyManager(
         context: Context,
         subId: Int,
-        carrierName: String
+        carrierName: String?
     ) {
         val telephonyManager = context.getSystemService(TelephonyManager::class.java)
             ?.createForSubscriptionId(subId)
@@ -202,7 +259,7 @@ internal object SubscriptionHiddenApi {
         }
     }
 
-    private fun setCarrierNameViaOplusInternalExt(subId: Int, carrierName: String) {
+    private fun setCarrierNameViaOplusInternalExt(subId: Int, carrierName: String?) {
         val internalExt = getIOplusTelephonyInternalExt()
             ?: throw IllegalStateException("IOplusTelephonyInternalExt unavailable")
         val phoneId = getPhoneIdForSubId(subId)
@@ -313,7 +370,7 @@ internal object SubscriptionHiddenApi {
         }.getOrNull()
     }
 
-    private fun setOperatorBrandOverrideViaITelephony(subId: Int, carrierName: String) {
+    private fun setOperatorBrandOverrideViaITelephony(subId: Int, carrierName: String?) {
         val iTelephony = getITelephony() ?: throw IllegalStateException("ITelephony unavailable")
         val method = findInterfaceMethods(ITELEPHONY, methodName = "setOperatorBrandOverride")
             .firstOrNull { it.parameterTypes.size == 2 }
@@ -400,7 +457,7 @@ internal object SubscriptionHiddenApi {
         }.getOrNull()
     }
 
-    private fun setCarrierNameViaOplusExt(subId: Int, carrierName: String) {
+    private fun setCarrierNameViaOplusExt(subId: Int, carrierName: String?) {
         val iSubExt = getISubExt() ?: throw IllegalStateException("ISubExt unavailable")
         invokeFirstMatching(
             target = iSubExt,
@@ -414,7 +471,7 @@ internal object SubscriptionHiddenApi {
     private fun buildCarrierNameArgs(
         parameterTypes: Array<Class<*>>,
         subId: Int,
-        carrierName: String
+        carrierName: String?
     ): Array<Any?>? {
         return when (parameterTypes.size) {
             2 -> when {
@@ -533,7 +590,7 @@ internal object SubscriptionHiddenApi {
 
     private fun invokeBoolean(method: java.lang.reflect.Method, target: Any, vararg args: Any?): Boolean {
         try {
-            return method.invoke(target, *args) as Boolean
+            return method.invoke(target, *args) as? Boolean ?: false
         } catch (e: InvocationTargetException) {
             throw e.targetException ?: e
         }

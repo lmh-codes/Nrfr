@@ -12,8 +12,8 @@ android {
         applicationId = "com.lmhcodes.nrfr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 32
-        versionName = "1.5.3"
+        versionCode = 33
+        versionName = "1.5.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -60,4 +60,3 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
-
