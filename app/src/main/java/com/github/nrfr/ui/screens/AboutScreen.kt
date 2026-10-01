@@ -119,7 +119,7 @@ fun AboutScreen(onBack: () -> Unit) {
         val currentLabel = if (currentVersion.isNotBlank()) "v$currentVersion" else "—"
         updateUi = UpdateUiState(
             tone = UpdateTone.PROGRESS,
-            detail = "正在读取更新清单（版本 / 校验 / 镜像）…",
+            detail = "正在检查 GitHub Releases…",
             currentVersion = currentLabel,
             latestVersion = "检查中",
             showProgress = false,
