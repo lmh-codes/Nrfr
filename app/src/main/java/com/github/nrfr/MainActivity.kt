@@ -6,9 +6,16 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import com.github.nrfr.manager.OperationState
 import com.github.nrfr.manager.ShizukuHelper
 import com.github.nrfr.ui.screens.AboutScreen
@@ -66,15 +73,28 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             NrfrTheme {
-                if (showAbout) {
-                    AboutScreen(onBack = { showAbout = false })
-                } else if (isShizukuReady) {
-                    MainScreen(onShowAbout = { showAbout = true })
-                } else {
-                    ShizukuNotReadyScreen(
-                        reason = shizukuBlockReason,
-                        onRequestPermission = { requestShizukuPermission() }
-                    )
+                val page = when {
+                    showAbout -> "about"
+                    isShizukuReady -> "main"
+                    else -> "shizuku"
+                }
+                AnimatedContent(
+                    targetState = page,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(180)) togetherWith
+                            fadeOut(animationSpec = tween(120))
+                    },
+                    label = "rootPage"
+                ) { target ->
+                    when (target) {
+                        "about" -> AboutScreen(onBack = { showAbout = false })
+                        "main" -> MainScreen(onShowAbout = { showAbout = true })
+                        else -> ShizukuNotReadyScreen(
+                            reason = shizukuBlockReason,
+                            onRequestPermission = { requestShizukuPermission() }
+                        )
+                    }
                 }
             }
         }
@@ -106,7 +126,7 @@ class MainActivity : ComponentActivity() {
     private fun updateShizukuStatus() {
         isShizukuReady = ShizukuHelper.hasPermission()
         if (!isShizukuReady) {
-            shizukuBlockReason = resolveShizukuBlockReason()
+            shizukuBlockReason = resolveShizukuBlockReason(this)
         }
     }
 

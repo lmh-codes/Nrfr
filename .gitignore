@@ -21,3 +21,16 @@ nrfr-client/
 *.apk
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+/build-alt/
+/ui-preview/
+/dist/
+
+signing/
+*.jks
+*.keystore
+keystore.properties
+.pydeps/
+.kotlin/
+/assets/
+/tools/
+
