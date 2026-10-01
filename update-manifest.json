@@ -3,10 +3,6 @@
   "versionCode": 34,
   "fileName": "Nrfr-v1.5.6.apk",
   "sizeBytes": 1321688,
-  "sha256": "F2AF760453814DCF17FFC8B922ACFA1603E7A4AED7EC153FA879410633D834F4",
-  "downloadUrl": "https://github.com/lmh-codes/Nrfr/releases/download/v1.5.6/Nrfr-v1.5.6.apk",
-  "mirrors": [
-    "https://gh.ddlc.top/",
-    "https://git.220324.xyz/"
-  ]
+  "sha256": "B5778E5D350E9CF31BA1A48C784BCB4E596869B0FE04CC1C8697235A8F35515D",
+  "downloadUrl": "https://github.com/lmh-codes/Nrfr/releases/download/v1.5.6/Nrfr-v1.5.6.apk"
 }
