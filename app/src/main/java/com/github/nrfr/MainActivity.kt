@@ -6,16 +6,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
+import com.github.nrfr.manager.CarrierConfigManager
 import com.github.nrfr.manager.OperationState
 import com.github.nrfr.manager.ShizukuHelper
 import com.github.nrfr.ui.screens.AboutScreen
@@ -32,6 +26,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuBlockReason by mutableStateOf(ShizukuBlockReason.SERVICE_NOT_RUNNING)
     private var showAbout by mutableStateOf(false)
     private var autoPermissionRequestAttempted = false
+    private var syncTriggered = false
 
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -39,6 +34,8 @@ class MainActivity : ComponentActivity() {
                 updateShizukuStatus()
                 if (grantResult != PackageManager.PERMISSION_GRANTED) {
                     Toast.makeText(this, "未授予 Shizuku 权限", Toast.LENGTH_LONG).show()
+                } else {
+                    triggerSyncWhenShizukuReady()
                 }
             }
         }
@@ -47,6 +44,7 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             updateShizukuStatus()
             requestShizukuPermissionAutomatically()
+            triggerSyncWhenShizukuReady()
         }
     }
 
@@ -70,31 +68,19 @@ class MainActivity : ComponentActivity() {
 
         updateShizukuStatus()
         requestShizukuPermissionAutomatically()
+        triggerSyncWhenShizukuReady()
 
         setContent {
             NrfrTheme {
-                val page = when {
-                    showAbout -> "about"
-                    isShizukuReady -> "main"
-                    else -> "shizuku"
-                }
-                AnimatedContent(
-                    targetState = page,
-                    modifier = Modifier.fillMaxSize(),
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(180)) togetherWith
-                            fadeOut(animationSpec = tween(120))
-                    },
-                    label = "rootPage"
-                ) { target ->
-                    when (target) {
-                        "about" -> AboutScreen(onBack = { showAbout = false })
-                        "main" -> MainScreen(onShowAbout = { showAbout = true })
-                        else -> ShizukuNotReadyScreen(
-                            reason = shizukuBlockReason,
-                            onRequestPermission = { requestShizukuPermission() }
-                        )
-                    }
+                if (showAbout) {
+                    AboutScreen(onBack = { showAbout = false })
+                } else if (isShizukuReady) {
+                    MainScreen(onShowAbout = { showAbout = true })
+                } else {
+                    ShizukuNotReadyScreen(
+                        reason = shizukuBlockReason,
+                        onRequestPermission = { requestShizukuPermission() }
+                    )
                 }
             }
         }
@@ -103,6 +89,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updateShizukuStatus()
+        triggerSyncWhenShizukuReady()
     }
 
     private fun requestShizukuPermission() {
@@ -128,6 +115,21 @@ class MainActivity : ComponentActivity() {
         if (!isShizukuReady) {
             shizukuBlockReason = resolveShizukuBlockReason(this)
         }
+    }
+
+    /** Shizuku 连上后：若本开机尚未清理，则清成无覆盖默认状态。 */
+    private fun triggerSyncWhenShizukuReady() {
+        if (!ShizukuHelper.hasPermission() || syncTriggered) {
+            return
+        }
+        syncTriggered = true
+        Thread({
+            runCatching {
+                CarrierConfigManager.ensureClearedAfterReboot(applicationContext)
+            }.onFailure {
+                syncTriggered = false
+            }
+        }, "NrfrBootClear").start()
     }
 
     override fun onDestroy() {

@@ -4,6 +4,7 @@ package com.github.nrfr.manager
 
 import android.content.Context
 import android.os.PersistableBundle
+import android.provider.Settings
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.telephony.CarrierConfigManager as AndroidCarrierConfigManager
@@ -14,6 +15,12 @@ import java.io.InputStream
 
 object CarrierConfigManager {
     private val PHONE_ID_PATTERN = Regex("""^Phone Id = (\d+)""")
+    private const val PREFS_SESSION = "nrfr_session"
+    private const val KEY_CLEARED_BOOT_COUNT = "cleared_boot_count"
+
+    /** 本进程内对「无覆盖却有角标」再强清一次即可，避免每次刷新都阻塞。 */
+    @Volatile
+    private var orphanScrubDone = false
 
     init {
         HiddenApiBypass.addHiddenApiExemptions("L")
@@ -21,6 +28,10 @@ object CarrierConfigManager {
     }
 
     fun getSimCards(context: Context): List<SimCardInfo> {
+        runCatching { rememberLiveOverrides(context, getCurrentConfigsByDumpsys()) }
+        runCatching { ensureClearedAfterReboot(context) }
+        runCatching { scrubOrphanBadges(context) }
+
         val isubSnapshot = getIsubSnapshotByDumpsys()
         val configsByPhoneId = getCurrentConfigsByDumpsys()
         val simCards = mutableListOf<SimCardInfo>()
@@ -44,6 +55,159 @@ object CarrierConfigManager {
         }
 
         return simCards
+    }
+
+    /**
+     * 每次开机后首次把已保存的卡1/卡2覆盖写回去（不清空）。
+     * 同一开机周期内不重复全量回写，避免打断当前会话刚保存的设置。
+     */
+    fun ensureClearedAfterReboot(context: Context): Boolean {
+        if (!ShizukuHelper.hasPermission()) {
+            return false
+        }
+        val bootCount = Settings.Global.getInt(
+            context.contentResolver,
+            Settings.Global.BOOT_COUNT,
+            -1
+        )
+        val prefs = context.getSharedPreferences(PREFS_SESSION, Context.MODE_PRIVATE)
+        val lastCleared = prefs.getInt(KEY_CLEARED_BOOT_COUNT, -2)
+        if (bootCount == lastCleared) {
+            return false
+        }
+        reapplySavedOverrides(context, prefs)
+        prefs.edit().putInt(KEY_CLEARED_BOOT_COUNT, bootCount).apply()
+        orphanScrubDone = true
+        return true
+    }
+
+    /**
+     * 对全部 SIM 执行还原：清覆盖配置，并阻塞清除状态栏品牌/SPN 角标。
+     */
+    fun restoreAllToUnset(context: Context) {
+        if (!ShizukuHelper.hasPermission()) {
+            throw IllegalStateException("Shizuku 未启动或未授权")
+        }
+        for (slotIndex in 0..1) {
+            val subId = getSubIdForSlotViaApi(context, slotIndex) ?: continue
+            runCatching { resetCarrierConfig(context, subId) }
+            runCatching {
+                DelegatedCarrierConfigOverride.runWithShellPermission {
+                    SubscriptionHiddenApi.syncAfterRestoreBlocking(context, subId)
+                }
+            }
+            runCatching {
+                SubscriptionHiddenApi.clearBrandThoroughly(context, subId)
+            }
+        }
+    }
+
+    private fun slotIndexForSubId(context: Context, subId: Int): Int? {
+        for (slotIndex in 0..1) {
+            if (getSubIdForSlotViaApi(context, slotIndex) == subId) {
+                return slotIndex
+            }
+        }
+        return getIsubSnapshotByDumpsys()?.slotToSubId?.entries
+            ?.firstOrNull { it.value == subId }
+            ?.key
+    }
+
+    private fun rememberSavedOverride(
+        context: Context,
+        subId: Int,
+        countryCode: String?,
+        carrierName: String?
+    ) {
+        val slot = slotIndexForSubId(context, subId) ?: return
+        context.getSharedPreferences(PREFS_SESSION, Context.MODE_PRIVATE).edit()
+            .putBoolean("slot_${slot}_set", true)
+            .putString("slot_${slot}_cc", countryCode.orEmpty())
+            .putString("slot_${slot}_name", carrierName.orEmpty())
+            .apply()
+    }
+
+    private fun clearSavedOverride(context: Context, subId: Int) {
+        val slot = slotIndexForSubId(context, subId) ?: return
+        context.getSharedPreferences(PREFS_SESSION, Context.MODE_PRIVATE).edit()
+            .putBoolean("slot_${slot}_set", false)
+            .remove("slot_${slot}_cc")
+            .remove("slot_${slot}_name")
+            .apply()
+    }
+
+    private fun rememberLiveOverrides(
+        context: Context,
+        configsByPhoneId: Map<Int, Map<String, String>>
+    ) {
+        val prefs = context.getSharedPreferences(PREFS_SESSION, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        var changed = false
+        for (slotIndex in 0..1) {
+            val config = configsByPhoneId[slotIndex] ?: continue
+            val countryCode = config["国家码"].orEmpty()
+            val carrierName = config["运营商名称"].orEmpty()
+            if (countryCode.isEmpty() && carrierName.isEmpty()) {
+                continue
+            }
+            editor.putBoolean("slot_${slotIndex}_set", true)
+            editor.putString("slot_${slotIndex}_cc", countryCode)
+            editor.putString("slot_${slotIndex}_name", carrierName)
+            changed = true
+        }
+        if (changed) {
+            editor.apply()
+        }
+    }
+
+    private fun reapplySavedOverrides(
+        context: Context,
+        prefs: android.content.SharedPreferences
+    ) {
+        for (slotIndex in 0..1) {
+            if (!prefs.getBoolean("slot_${slotIndex}_set", false)) {
+                continue
+            }
+            val subId = getSubIdForSlotViaApi(context, slotIndex) ?: continue
+            val countryCode = prefs.getString("slot_${slotIndex}_cc", null)?.takeIf { it.isNotEmpty() }
+            val carrierName = prefs.getString("slot_${slotIndex}_name", null)?.takeIf { it.isNotEmpty() }
+            if (countryCode == null && carrierName == null) {
+                continue
+            }
+            runCatching { setCarrierConfig(context, subId, countryCode, carrierName) }
+        }
+    }
+
+    /**
+     * 无 CarrierConfig 覆盖时，再强清一次残留角标（本进程最多一次）。
+     */
+    fun scrubOrphanBadges(context: Context) {
+        if (orphanScrubDone || !ShizukuHelper.hasPermission()) {
+            return
+        }
+        val configsByPhoneId = getCurrentConfigsByDumpsys()
+        var didClear = false
+        for (slotIndex in 0..1) {
+            val subId = getSubIdForSlotViaApi(context, slotIndex) ?: continue
+            val config = configsByPhoneId[slotIndex]
+                ?: getCurrentConfigByLoader(context, subId)
+                ?: getCurrentConfigByPublicApi(context, subId)
+            if (config.isNotEmpty()) {
+                continue
+            }
+            didClear = true
+            runCatching {
+                DelegatedCarrierConfigOverride.runWithShellPermission {
+                    SubscriptionHiddenApi.syncAfterRestoreBlocking(context, subId)
+                }
+            }
+            runCatching {
+                SubscriptionHiddenApi.clearBrandThoroughly(context, subId)
+            }
+        }
+        if (didClear) {
+            orphanScrubDone = true
+        }
     }
 
     private data class IsubSnapshot(
@@ -76,11 +240,13 @@ object CarrierConfigManager {
         }
 
         overrideCarrierConfig(context, subId, bundle)
+        rememberSavedOverride(context, subId, countryCode, carrierName)
         return CarrierConfigOperationResult()
     }
 
     fun resetCarrierConfig(context: Context, subId: Int): CarrierConfigOperationResult {
         overrideCarrierConfig(context, subId, null)
+        clearSavedOverride(context, subId)
         return CarrierConfigOperationResult()
     }
 
@@ -94,18 +260,18 @@ object CarrierConfigManager {
     ): Boolean {
         var usedInstrumentation = false
         try {
-            TelephonyHiddenApi.overrideConfig(subId, bundle, persistent = true)
+            TelephonyHiddenApi.overrideConfig(subId, bundle, persistent = false)
             syncSubscriptionAfterOverride(context, subId, bundle)
             waitUntilConfigMatches(context, subId, bundle)
             return false
         } catch (error: SecurityException) {
             if (!error.message.orEmpty().contains("cannot be invoked by shell", ignoreCase = true)) {
-                throw error.unwrapCarrierConfigCause()
+                throw TelephonyHiddenApi.unwrapCause(error)
             }
         } catch (error: Throwable) {
-            val message = error.unwrapCarrierConfigCause().message.orEmpty()
+            val message = TelephonyHiddenApi.unwrapCause(error).message.orEmpty()
             if (!message.contains("cannot be invoked by shell", ignoreCase = true)) {
-                throw error.unwrapCarrierConfigCause()
+                throw TelephonyHiddenApi.unwrapCause(error)
             }
         }
 
@@ -114,7 +280,7 @@ object CarrierConfigManager {
                 context,
                 subId,
                 bundle,
-                persistent = true
+                persistent = false
             )
         }
         if (delegatedError.isSuccess) {

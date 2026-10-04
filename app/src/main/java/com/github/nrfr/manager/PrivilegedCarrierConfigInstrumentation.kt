@@ -39,19 +39,13 @@ class PrivilegedCarrierConfigInstrumentation : Instrumentation() {
                 waitForTargetContext()
                 waitForShizukuBinder()
                 withShellPermissionIdentity {
-                    try {
-                        invokeOverrideConfig(subId, bundle, persistent = true)
-                    } catch (error: Throwable) {
-                        lastError = error
-                        invokeOverrideConfig(subId, bundle, persistent = false)
-                        lastError = null
-                    }
+                    invokeOverrideConfig(subId, bundle, persistent = false)
                 }
             } catch (error: Throwable) {
                 lastError = error
             } finally {
                 val result = Bundle().apply {
-                    lastError?.unwrapCarrierConfigCause()?.let { cause ->
+                    lastError?.let { TelephonyHiddenApi.unwrapCause(it) }?.let { cause ->
                         putString("error", cause.message ?: cause.javaClass.simpleName)
                     }
                 }

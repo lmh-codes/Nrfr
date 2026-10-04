@@ -2,6 +2,7 @@
 .gradle
 /local.properties
 /.idea
+.kotlin/
 .DS_Store
 /build
 **/build/
@@ -20,17 +21,5 @@ instrumentation-target/
 nrfr-client/
 *.apk
 *.jar
+*.mp4
 !gradle/wrapper/gradle-wrapper.jar
-/build-alt/
-/ui-preview/
-/dist/
-
-signing/
-*.jks
-*.keystore
-keystore.properties
-.pydeps/
-.kotlin/
-/assets/
-/tools/
-

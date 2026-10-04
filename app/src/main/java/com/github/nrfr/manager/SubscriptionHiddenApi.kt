@@ -32,7 +32,8 @@ internal object SubscriptionHiddenApi {
     }
 
     fun syncAfterRestore(context: Context, subId: Int) {
-        scheduleSync(context, subId, carrierName = null, blocking = false, useShellIdentity = false)
+        // 还原必须阻塞做完，否则重启后角标（品牌/SPN）常残留
+        scheduleSync(context, subId, carrierName = null, blocking = true, useShellIdentity = false)
     }
 
     /** instrumentation 进程会在 finish 后立即退出，须在同一线程（保留 shell 身份）阻塞完成。 */
@@ -43,6 +44,27 @@ internal object SubscriptionHiddenApi {
 
     fun syncAfterRestoreBlocking(context: Context, subId: Int) {
         scheduleSync(context, subId, carrierName = null, blocking = true, useShellIdentity = true)
+    }
+
+    /**
+     * 强制清除状态栏运营商角标（含重试）。用于重启后 / 无 CarrierConfig 覆盖时。
+     */
+    fun clearBrandThoroughly(context: Context, subId: Int) {
+        scheduleSync(context, subId, carrierName = null, blocking = true, useShellIdentity = false)
+    }
+
+    /**
+     * 快速清一次残留角标（无长重试）。
+     */
+    fun clearResidualBrandWhenNoOverride(context: Context, subId: Int) {
+        val appContext = context.applicationContext
+        syncShellIdentity.set(false)
+        try {
+            runCatching { clearCarrierName(appContext, subId) }
+            runCatching { notifyConfigChangedForSubId(subId) }
+        } finally {
+            syncShellIdentity.remove()
+        }
     }
 
     private fun scheduleSync(

@@ -34,6 +34,14 @@ internal object TelephonyHiddenApi {
         }
     }
 
+    fun unwrapCause(error: Throwable): Throwable {
+        var current: Throwable = error
+        while (current is InvocationTargetException && current.cause != null) {
+            current = current.cause!!
+        }
+        return current
+    }
+
     private fun getCarrierConfigLoader(): Any? {
         return getCarrierConfigLoaderOrNull()
     }

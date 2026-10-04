@@ -4,8 +4,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-layout.buildDirectory.set(file("${rootProject.projectDir}/build-alt"))
-
 android {
     namespace = "com.github.nrfr"
     compileSdk = 36
@@ -14,8 +12,9 @@ android {
         applicationId = "com.lmhcodes.nrfr"
         minSdk = 26
         targetSdk = 35
-        versionCode = 34
-        versionName = "1.5.6"
+        versionCode = 35
+        versionName = "1.5.7"
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -35,6 +34,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
