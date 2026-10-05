@@ -12,7 +12,7 @@
 
 ## 安装方式
 
-1. 手机安装并启用 [Shizuku](https://shizuku.rikka.app/)
+1. 手机安装并启用 [Shizuku](https://github.com/lmh-codes/shizuku)
 2. 从 [Releases](https://github.com/lmh-codes/Nrfr/releases) 下载最新 `Nrfr-*.apk` 并安装
 3. 在 Shizuku 中授予 Nrfr 权限后打开应用，选择 SIM 卡、国家码、运营商后点「保存生效」
 
